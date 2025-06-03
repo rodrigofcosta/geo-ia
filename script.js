@@ -93,4 +93,21 @@ function handleKML(kmlContent) {
       if (geometry) {
         geojson.features.push({
           type: "Feature",
-          properties
+          properties: { name },
+          geometry: geometry
+        });
+      }
+    }
+
+    if (geojson.features.length === 0) {
+      alert("Arquivo KML vazio ou sem geometrias válidas.");
+      return;
+    }
+
+    const layer = L.geoJSON(geojson).addTo(map);
+    alert("Arquivo KML carregado com sucesso!");
+  } catch (error) {
+    alert("Erro ao carregar o arquivo KML.\n\nVerifique se o arquivo está no formato correto.");
+    console.error("Erro detalhado:", error);
+  }
+}
