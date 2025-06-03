@@ -1,58 +1,70 @@
-// Inicializa o mapa
-const map = L.map('map').setView([0, 0], 2);
+// script.js completo com suporte a KML, KMZ, CSV, XLSX
 
-// Adiciona uma camada base (OpenStreetMap)
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',  {
+const map = L.map('map').setView([0, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
 
-// Função para carregar arquivo
+let layers = [];
+
+function sendPrompt() {
+  const prompt = document.getElementById("promptInput").value;
+  const responseArea = document.getElementById("responseArea");
+  responseArea.innerText = "IA respondendo: " + prompt;
+}
+
 function uploadFile() {
   const fileInput = document.getElementById('fileInput');
   const file = fileInput.files[0];
+  if (!file) return alert("Selecione um arquivo primeiro.");
 
-  if (!file) {
-    alert("Selecione um arquivo primeiro.");
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onload = function(e) {
-    const content = e.target.result;
-
-    // Tratamento de diferentes formatos
-    if (file.name.endsWith('.kml') || file.name.endsWith('.kmz')) {
-      handleKML(content);
-    } else if (file.name.endsWith('.csv')) {
-      handleCSV(content);
-    } else if (file.name.endsWith('.xlsx')) {
-      handleExcel(content);
-    } else {
-      alert("Formato não suportado.");
-    }
-  };
-
-  reader.readAsText(file);
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'kml' || ext === 'kmz') handleKML(file);
+  else if (ext === 'csv') handleCSV(file);
+  else if (ext === 'xlsx') handleExcel(file);
+  else alert("Formato não suportado. Use KML, KMZ, CSV ou XLSX.");
 }
 
-// Função para tratar KML/KMZ
-function handleKML(kmlContent) {
-  try {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(kmlContent, "text/xml");
+function handleKML(file) {
+  const reader = new FileReader();
 
-    const geojson = {
-      type: "FeatureCollection",
-      features: []
+  if (file.name.toLowerCase().endsWith(".kmz")) {
+    reader.onload = async function (e) {
+      try {
+        const zip = await JSZip.loadAsync(e.target.result);
+        const kmlFile = Object.values(zip.files).find(f => f.name.endsWith(".kml"));
+        if (!kmlFile) return alert("KMZ não contém KML válido.");
+        const kmlText = await kmlFile.async("text");
+        handleKMLContent(kmlText, file.name);
+      } catch (err) {
+        alert("Erro ao processar KMZ.");
+        console.error("Erro no KMZ:", err);
+      }
     };
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.onload = function (e) {
+      try {
+        handleKMLContent(e.target.result, file.name);
+      } catch (err) {
+        alert("Erro ao processar KML.");
+        console.error("Erro no KML:", err);
+      }
+    };
+    reader.readAsText(file);
+  }
+}
 
-    const placemarks = xmlDoc.getElementsByTagName("Placemark");
+function handleKMLContent(kmlContent, fileName = "KML") {
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(kmlContent, "text/xml");
+  const geojson = { type: "FeatureCollection", features: [] };
 
-    for (let i = 0; i < placemarks.length; i++) {
+  const placemarks = xmlDoc.getElementsByTagName("Placemark");
+  for (let i = 0; i < placemarks.length; i++) {
+    try {
       const placemark = placemarks[i];
       const name = placemark.getElementsByTagName("name")[0]?.textContent || "Sem nome";
-
       let geometry = null;
 
       const point = placemark.querySelector("Point");
@@ -60,156 +72,123 @@ function handleKML(kmlContent) {
       const polygon = placemark.querySelector("Polygon");
 
       if (point) {
-        const coords = point.querySelector("coordinates")?.textContent;
+        const coords = point.querySelector("coordinates")?.textContent?.trim();
         if (coords) {
-          const [lon, lat] = coords.split(',').map(Number);
-          geometry = {
-            type: "Point",
-            coordinates: [lon, lat]
-          };
+          const [lon, lat] = coords.split(",").map(Number);
+          geometry = { type: "Point", coordinates: [lon, lat] };
         }
       } else if (lineString) {
-        const coords = lineString.querySelector("coordinates")?.textContent;
-        if (coords) {
-          const points = coords.split(' ').map(c => c.split(',').map(Number));
-          geometry = {
-            type: "LineString",
-            coordinates: points
-          };
+        const coordsText = lineString.querySelector("coordinates")?.textContent?.trim();
+        if (coordsText) {
+          const coords = coordsText.split(/\s+/).map(c => c.split(",").map(Number)).filter(c => c.length >= 2);
+          geometry = { type: "LineString", coordinates: coords.map(([lon, lat]) => [lon, lat]) };
         }
       } else if (polygon) {
-        const coords = polygon.querySelector("coordinates")?.textContent;
-        if (coords) {
-          const points = coords.split(' ').map(c => c.split(',').map(Number));
-          geometry = {
-            type: "Polygon",
-            coordinates: [points]
-          };
+        const coordsText = polygon.querySelector("outerBoundaryIs coordinates")?.textContent?.trim()
+                          || polygon.querySelector("coordinates")?.textContent?.trim();
+        if (coordsText) {
+          const coords = coordsText.split(/\s+/).map(c => c.split(",").map(Number)).filter(c => c.length >= 2);
+          geometry = { type: "Polygon", coordinates: [coords.map(([lon, lat]) => [lon, lat])] };
         }
       }
 
       if (geometry) {
-        geojson.features.push({
-          type: "Feature",
-          properties: { name },
-          geometry: geometry
-        });
+        geojson.features.push({ type: "Feature", properties: { name }, geometry });
       }
+    } catch (err) {
+      console.warn("Erro em Placemark:", err);
     }
+  }
 
-    if (geojson.features.length === 0) {
-      alert("Arquivo KML vazio ou sem geometrias válidas.");
-      return;
-    }
-
+  if (geojson.features.length > 0) {
     const layer = L.geoJSON(geojson).addTo(map);
+    addLayerToUI(layer, fileName);
     alert("Arquivo KML carregado com sucesso!");
-  } catch (error) {
-    alert("Erro ao carregar o arquivo KML.\n\nVerifique se o arquivo está no formato correto.");
-    console.error(error);
+  } else {
+    alert("Nenhuma feição válida encontrada no arquivo.");
   }
 }
 
-// Função para tratar CSV
-function handleCSV(csvContent) {
-  try {
-    const lines = csvContent.trim().split('\n');
-    const headers = lines[0].split(',');
-    const data = lines.slice(1).map(line => line.split(','));
+function handleCSV(file) {
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const lines = e.target.result.trim().split('\n');
+      const headers = lines[0].split(',');
+      const data = lines.slice(1).map(l => l.split(','));
+      const geojson = { type: "FeatureCollection", features: [] };
 
-    const geojson = {
-      type: "FeatureCollection",
-      features: []
-    };
-
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      let lat = null, lon = null;
-
-      for (let j = 0; j < headers.length; j++) {
-        const header = headers[j].toLowerCase();
-        const value = row[j];
-
-        if (header.includes('lat') || header.includes('latitude')) {
-          lat = parseFloat(value);
-        } else if (header.includes('lon') || header.includes('longitude') || header.includes('lng')) {
-          lon = parseFloat(value);
+      for (const row of data) {
+        let lat = null, lon = null;
+        for (let j = 0; j < headers.length; j++) {
+          const h = headers[j].toLowerCase();
+          if (h.includes('lat')) lat = parseFloat(row[j]);
+          if (h.includes('lon') || h.includes('lng')) lon = parseFloat(row[j]);
+        }
+        if (lat !== null && lon !== null) {
+          geojson.features.push({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: {} });
         }
       }
 
-      if (lat !== null && lon !== null) {
-        geojson.features.push({
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "Point",
-            coordinates: [lon, lat]
-          }
-        });
-      }
+      const layer = L.geoJSON(geojson).addTo(map);
+      addLayerToUI(layer, file.name);
+      alert("Arquivo CSV carregado com sucesso!");
+    } catch (err) {
+      alert("Erro ao carregar CSV.");
+      console.error(err);
     }
-
-    const layer = L.geoJSON(geojson).addTo(map);
-    alert("Arquivo CSV carregado com sucesso!");
-  } catch (error) {
-    alert("Erro ao carregar o arquivo CSV.\n\nVerifique se o formato está correto.");
-    console.error(error);
-  }
+  };
+  reader.readAsText(file);
 }
 
-// Função para tratar Excel (via SheetJS)
-function handleExcel(xlsxContent) {
-  try {
-    const workbook = XLSX.read(xlsxContent, { type: 'binary' });
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+function handleExcel(file) {
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      const headers = json[0];
+      const rows = json.slice(1);
 
-    const geojson = {
-      type: "FeatureCollection",
-      features: []
-    };
-
-    const headers = data[0];
-    const rows = data.slice(1);
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      let lat = null, lon = null;
-
-      for (let j = 0; j < headers.length; j++) {
-        const header = headers[j].toLowerCase();
-        const value = row[j];
-
-        if (header.includes('lat') || header.includes('latitude')) {
-          lat = parseFloat(value);
-        } else if (header.includes('lon') || header.includes('longitude') || header.includes('lng')) {
-          lon = parseFloat(value);
+      const geojson = { type: "FeatureCollection", features: [] };
+      for (const row of rows) {
+        let lat = null, lon = null;
+        for (let j = 0; j < headers.length; j++) {
+          const h = headers[j]?.toLowerCase();
+          if (h?.includes('lat')) lat = parseFloat(row[j]);
+          if (h?.includes('lon') || h?.includes('lng')) lon = parseFloat(row[j]);
+        }
+        if (lat !== null && lon !== null) {
+          geojson.features.push({ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] }, properties: {} });
         }
       }
 
-      if (lat !== null && lon !== null) {
-        geojson.features.push({
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "Point",
-            coordinates: [lon, lat]
-          }
-        });
-      }
+      const layer = L.geoJSON(geojson).addTo(map);
+      addLayerToUI(layer, file.name);
+      alert("Arquivo Excel carregado com sucesso!");
+    } catch (err) {
+      alert("Erro ao carregar Excel.");
+      console.error(err);
     }
-
-    const layer = L.geoJSON(geojson).addTo(map);
-    alert("Arquivo Excel carregado com sucesso!");
-  } catch (error) {
-    alert("Erro ao carregar o arquivo Excel.\n\nVerifique se o formato está correto.");
-    console.error(error);
-  }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
-// Função para enviar prompt à IA (simulação)
-function sendPrompt() {
-  const prompt = document.getElementById("promptInput").value;
-  const responseArea = document.getElementById("responseArea");
-  responseArea.innerText = "IA respondendo: " + prompt;
+function addLayerToUI(layer, name) {
+  const container = document.getElementById('layerList');
+  const item = document.createElement('div');
+  item.className = 'layer-item';
+  item.dataset.name = name;
+  item.innerHTML = `<span>${name}</span> <button onclick="toggleLayer('${name}')">Mostrar/Esconder</button>`;
+  container.appendChild(item);
+  layers.push({ name, layer });
+}
+
+function toggleLayer(name) {
+  const layer = layers.find(l => l.name === name)?.layer;
+  if (layer) {
+    if (map.hasLayer(layer)) map.removeLayer(layer);
+    else map.addLayer(layer);
+  }
 }
