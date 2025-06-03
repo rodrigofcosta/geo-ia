@@ -1,4 +1,4 @@
-// script.js atualizado com tratamento de erro refinado em KML/KMZ
+// script.js final com correções para KML/KMZ
 
 const map = L.map('map').setView([0, 0], 2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -32,8 +32,11 @@ function handleKML(file) {
     reader.onload = async function (e) {
       try {
         const zip = await JSZip.loadAsync(e.target.result);
-        const kmlFile = Object.values(zip.files).find(f => f.name.endsWith(".kml"));
+        console.log("Arquivos no KMZ:", Object.keys(zip.files));
+
+        const kmlFile = Object.values(zip.files).find(f => f.name.toLowerCase().endsWith(".kml"));
         if (!kmlFile) return alert("KMZ não contém KML válido.");
+
         const kmlText = await kmlFile.async("text");
         handleKMLContent(kmlText, file.name);
       } catch (err) {
@@ -100,19 +103,23 @@ function handleKMLContent(kmlContent, fileName = "KML") {
     }
   }
 
-  if (geojson.features.length > 0) {
-    try {
-      const layer = L.geoJSON(geojson).addTo(map);
-      addLayerToUI(layer, fileName);
-      alert("Arquivo KML carregado com sucesso!");
-    } catch (e) {
-      console.error("Erro ao adicionar camada:", e);
-      alert("Erro ao adicionar a camada ao mapa.");
-    }
-  } else {
-    alert("Nenhuma feição válida encontrada no arquivo.");
+  const validFeatures = geojson.features.filter(f =>
+    f.geometry && f.geometry.coordinates && f.geometry.coordinates.length > 0
+  );
+
+  if (validFeatures.length === 0) {
+    alert("Nenhuma feição válida encontrada para adicionar ao mapa.");
+    return;
+  }
+
+  try {
+    const layer = L.geoJSON({ type: "FeatureCollection", features: validFeatures }).addTo(map);
+    addLayerToUI(layer, fileName);
+    alert("Arquivo KML carregado com sucesso!");
+  } catch (e) {
+    console.error("Erro ao adicionar camada:", e);
+    alert("Erro ao adicionar a camada ao mapa.");
   }
 }
 
-// Demais funções: handleCSV, handleExcel, addLayerToUI, toggleLayer permanecem iguais
-
+// As funções handleCSV, handleExcel, addLayerToUI, toggleLayer permanecem como antes
