@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aplicação Geográfica com IA</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"  />
+</head>
+<body>
+
+<div class="sidebar">
+  <h3>Carregar Arquivo</h3>
+  <input type="file" id="fileInput" accept=".kml,.kmz,.csv,.xlsx" />
+  <button onclick="uploadFile()">Carregar</button>
+
+  <h3>Agente de IA</h3>
+  <textarea id="promptInput" placeholder="Digite seu prompt..."></textarea>
+  <button onclick="sendPrompt()">Enviar</button>
+  <div id="responseArea"></div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script> 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script> 
+<script src="script.js"></script>
+
+</body>
+</html>
