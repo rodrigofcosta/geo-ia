@@ -42,8 +42,6 @@ function handleKML(kmlContent) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(kmlContent, "text/xml");
 
-    console.log("Conteúdo do XML:", xmlDoc); // Mostra o XML no console
-
     const geojson = {
       type: "FeatureCollection",
       features: []
@@ -108,6 +106,110 @@ function handleKML(kmlContent) {
     alert("Arquivo KML carregado com sucesso!");
   } catch (error) {
     alert("Erro ao carregar o arquivo KML.\n\nVerifique se o arquivo está no formato correto.");
-    console.error("Erro detalhado:", error);
+    console.error(error);
   }
+}
+
+// Função para tratar CSV
+function handleCSV(csvContent) {
+  try {
+    const lines = csvContent.trim().split('\n');
+    const headers = lines[0].split(',');
+    const data = lines.slice(1).map(line => line.split(','));
+
+    const geojson = {
+      type: "FeatureCollection",
+      features: []
+    };
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      let lat = null, lon = null;
+
+      for (let j = 0; j < headers.length; j++) {
+        const header = headers[j].toLowerCase();
+        const value = row[j];
+
+        if (header.includes('lat') || header.includes('latitude')) {
+          lat = parseFloat(value);
+        } else if (header.includes('lon') || header.includes('longitude') || header.includes('lng')) {
+          lon = parseFloat(value);
+        }
+      }
+
+      if (lat !== null && lon !== null) {
+        geojson.features.push({
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Point",
+            coordinates: [lon, lat]
+          }
+        });
+      }
+    }
+
+    const layer = L.geoJSON(geojson).addTo(map);
+    alert("Arquivo CSV carregado com sucesso!");
+  } catch (error) {
+    alert("Erro ao carregar o arquivo CSV.\n\nVerifique se o formato está correto.");
+    console.error(error);
+  }
+}
+
+// Função para tratar Excel (via SheetJS)
+function handleExcel(xlsxContent) {
+  try {
+    const workbook = XLSX.read(xlsxContent, { type: 'binary' });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+    const geojson = {
+      type: "FeatureCollection",
+      features: []
+    };
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      let lat = null, lon = null;
+
+      for (let j = 0; j < headers.length; j++) {
+        const header = headers[j].toLowerCase();
+        const value = row[j];
+
+        if (header.includes('lat') || header.includes('latitude')) {
+          lat = parseFloat(value);
+        } else if (header.includes('lon') || header.includes('longitude') || header.includes('lng')) {
+          lon = parseFloat(value);
+        }
+      }
+
+      if (lat !== null && lon !== null) {
+        geojson.features.push({
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Point",
+            coordinates: [lon, lat]
+          }
+        });
+      }
+    }
+
+    const layer = L.geoJSON(geojson).addTo(map);
+    alert("Arquivo Excel carregado com sucesso!");
+  } catch (error) {
+    alert("Erro ao carregar o arquivo Excel.\n\nVerifique se o formato está correto.");
+    console.error(error);
+  }
+}
+
+// Função para enviar prompt à IA (simulação)
+function sendPrompt() {
+  const prompt = document.getElementById("promptInput").value;
+  const responseArea = document.getElementById("responseArea");
+  responseArea.innerText = "IA respondendo: " + prompt;
 }
